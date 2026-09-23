@@ -1,71 +1,121 @@
-version: '3.8'
-
 services:
+  # Database — PostgreSQL 16 (Alpine), образ собирается
+  # из ./database/Dockerfile (init.sql запечён внутрь)
   database:
-    build: 
+    build:
       context: ./database
       dockerfile: Dockerfile
+    image: crm-database:local
     container_name: crm_database
+
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
+      # Эти три переменные читает docker-entrypoint.sh официального образа
+      # при первой инициализации: создаёт пользователя, БД и пароль
+      POSTGRES_USER:     ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_DB:       ${POSTGRES_DB}
+
     volumes:
+      # Именованный volume — данные переживут `docker compose down`
+      # (но НЕ `down -v` — тогда volume удаляется)
       - postgres_data:/var/lib/postgresql/data
+
     networks:
       - backend_network
+
     ports:
+      # Публикуем порт для отладки с хоста (psql, DBeaver)
       - "${POSTGRES_PORT:-5432}:5432"
+
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      # pg_isready встроен в образ. -U и -d — от имени какого юзера
+      # и к какой БД проверять. Флаг -q — тихий режим
+      #
+      # ${POSTGRES_USER} и ${POSTGRES_DB} подставляются Compose'ом
+      # ДО отправки в контейнер (интерполяция из .env на стороне хоста)
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -q"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 30s   # время на initdb + init.sql без учёта неудач
+
     restart: unless-stopped
 
+  # Backend — Node.js + Express API
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    image: crm-backend:local
     container_name: crm_backend
+
     environment:
-      DB_USER: ${POSTGRES_USER}
+      # Имена переменных совпадают с теми, что читает server.js:
+      DB_USER:     ${POSTGRES_USER}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
-      DB_HOST: database
-      DB_NAME: ${POSTGRES_DB}
-      DB_PORT: 5432
-      NODE_ENV: ${NODE_ENV}
+      DB_HOST:     database          # имя сервиса → резолвится Docker DNS
+      DB_NAME:     ${POSTGRES_DB}
+      DB_PORT:     5432
+      NODE_ENV:    ${NODE_ENV}
+
     depends_on:
       database:
+        # Ждём НЕ «контейнер запущен», а «healthcheck прошёл»
+        # Без этого backend стартанёт раньше, чем Postgres примет соединения,
+        # и первые запросы вернут ECONNREFUSED
         condition: service_healthy
+
     networks:
+      # в backend_network видит database, в frontend_network — frontend
       - backend_network
       - frontend_network
+
     ports:
+      # Публикуем API наружу — удобно для отладки (curl, Postman)
       - "${BACKEND_PORT:-3001}:3001"
+
     restart: unless-stopped
 
+  # Frontend — nginx:alpine со собранным CRA-билдом
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    image: crm-frontend:local
     container_name: crm_frontend
+
     depends_on:
+      # Healthcheck backend'а не нужен, потому что nginx резолвит имя
+      # `backend` лениво (через переменную + resolver 127.0.0.11),
+      # и стартует независимо от того, готов backend или нет
       - backend
+
     networks:
+      # Только frontend_network — до database физически нет маршрута
       - frontend_network
+
     ports:
       - "${FRONTEND_PORT:-80}:80"
+
     restart: unless-stopped
 
+# Volumes
 volumes:
   postgres_data:
     driver: local
+    # Явное имя упрощает инспекцию: docker volume ls | grep crm
+    name: crm_postgres_data
 
+# Networks
 networks:
+  # Внутренняя сеть для backend ↔ database
+  # frontend сюда НЕ подключён → не видит Postgres
   backend_network:
     driver: bridge
     name: crm_backend_net
+
+  # Сеть для frontend ↔ backend
+  # database сюда НЕ подключена
   frontend_network:
     driver: bridge
     name: crm_frontend_net
