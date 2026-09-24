@@ -121,3 +121,25 @@ Backend и Frontend запускаются автоматически через
 - `email` (VARCHAR 255) - email клиента
 - `phone` (VARCHAR 50) - телефон клиента
 - `company` (VARCHAR 255) - компания клиента
+
+## HTTPS / Self-signed certificate
+
+The frontend serves HTTPS on port 443 with a self-signed certificate.
+The certificate files (`cert.pem`, `key.pem`) are **not** committed to git
+and must be generated locally before building:
+
+```bash
+mkdir -p frontend/certs && cd frontend/certs
+openssl req -x509 -nodes -newkey rsa:2048 \
+  -keyout key.pem -out cert.pem -days 365 \
+  -subj "/C=RU/ST=Moscow/L=Moscow/O=CRM Dev/CN=localhost" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+```
+
+Then build and run:
+
+```bash
+docker compose up -d --build
+```
+
+Open https://localhost (browser will warn about the self-signed cert — accept it).
