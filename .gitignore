@@ -42,3 +42,11 @@ Thumbs.db
 # Package lock files (optional, uncomment if you don't want to track them)
 # package-lock.json
 # yarn.lock
+
+# Certificates — приватные ключи нельзя коммитить
+frontend/certs/*.pem
+frontend/certs/*.key
+frontend/certs/*.crt
+
+# Но certs/.gitkeep оставляем, чтобы папка была в репо
+!frontend/certs/.gitkeep

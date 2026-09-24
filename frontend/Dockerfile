@@ -14,11 +14,9 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 # Переиспользование node_modules из deps (не ставим повторно)
 COPY --from=deps /app/node_modules ./node_modules
-# Копирование исходного кода. .dockerignore обязан исключать node_modules и build,
-# иначе локальные node_modules перезапишут контейнерные (и сборка упадёт
-# на несовместимых бинарниках).
+# Копирование исходного кода
 COPY . .
-# CI=false — чтобы предупреждения ESLint не валили сборку в образе.
+# CI=false — чтобы предупреждения ESLint не валили сборку в образе
 ENV CI=false
 # Сборка приложения
 RUN npm run build
@@ -33,7 +31,18 @@ RUN rm -rf /usr/share/nginx/html/* \
 COPY --from=builder /app/build /usr/share/nginx/html
 # Копирование кастомного конфига
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+# Копирование TLS-сертификата в образ
+COPY certs/cert.pem /etc/nginx/certs/cert.pem
+COPY certs/key.pem  /etc/nginx/certs/key.pem
+
+# Назначение прав доступа, воркеры наследуют дескриптор от мастера
+RUN chmod 644 /etc/nginx/certs/cert.pem \
+    && chmod 640 /etc/nginx/certs/key.pem
+
 # Назначение порта
-EXPOSE 80
+# Теперь nginx слушает и HTTP (80), и HTTPS (443)
+EXPOSE 80 443
+
 # Запуск приложения
 CMD ["nginx", "-g", "daemon off;"]
