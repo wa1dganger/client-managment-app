@@ -100,12 +100,42 @@ services:
 
     restart: unless-stopped
 
+  # db-backup — периодический pg_dump в named volume
+  db-backup:
+    image: postgres:16-alpine            # используем готовый образ, где есть pg_dump
+    container_name: crm_db_backup
+    depends_on:
+      database:
+        condition: service_healthy       # ждём готовности БД
+    environment:
+      DB_HOST:         database
+      DB_PORT:         5432
+      DB_USER:         ${POSTGRES_USER}
+      DB_PASSWORD:     ${POSTGRES_PASSWORD}
+      DB_NAME:         ${POSTGRES_DB}
+      BACKUP_INTERVAL: ${BACKUP_INTERVAL:-86400}
+      BACKUP_KEEP:     ${BACKUP_KEEP:-7}
+      BACKUP_DIR:      /backups
+    volumes:
+      - db_backups:/backups
+      # Монтируем скрипт read-only. Контейнер не может его изменить
+      - ./backup/backup.sh:/usr/local/bin/backup.sh:ro
+    # Переопределяем entrypoint образа postgres
+    entrypoint: ["/bin/sh", "/usr/local/bin/backup.sh"]
+    networks:
+      # Только backend_network — ему нужен доступ к database
+      - backend_network
+    restart: unless-stopped
+
 # Volumes
 volumes:
   postgres_data:
     driver: local
     # Явное имя упрощает инспекцию: docker volume ls | grep crm
     name: crm_postgres_data
+  db_backups:
+    driver: local
+    name: crm_db_backups
 
 # Networks
 networks:
