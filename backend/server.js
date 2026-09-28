@@ -2,6 +2,33 @@ const express = require('express');
 const cors = require('cors');
 const { Pool } = require('pg');
 
+const fs = require('fs');
+const path = require('path');
+
+// Логирование: пишем одновременно в stdout (docker logs)
+// и в файл (named volume)
+const LOG_DIR = process.env.LOG_DIR || '/var/log/backend';
+const LOG_FILE = path.join(LOG_DIR, 'app.log');
+
+// Создаём директорию, если не существует
+fs.mkdirSync(LOG_DIR, { recursive: true });
+
+const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a' });
+
+function writeLog(level, args) {
+  const line = `[${new Date().toISOString()}] [${level}] ${args.map(String).join(' ')}\n`;
+  process.stdout.write(line);
+  logStream.write(line);
+}
+
+// Переопределяем глобальный console, чтобы все вызовы в коде
+// автоматически шли в файл
+console.log   = (...a) => writeLog('INFO',  a);
+console.error = (...a) => writeLog('ERROR', a);
+console.warn  = (...a) => writeLog('WARN',  a);
+console.info  = (...a) => writeLog('INFO',  a);
+console.debug = (...a) => writeLog('DEBUG', a);
+
 const app = express();
 
 app.use(express.json());

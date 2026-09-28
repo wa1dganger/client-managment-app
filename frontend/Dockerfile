@@ -44,5 +44,15 @@ RUN chmod 644 /etc/nginx/certs/cert.pem \
 # Теперь nginx слушает и HTTP (80), и HTTPS (443)
 EXPOSE 80 443
 
+# Готовим директорию логов:
+# 1. Удаляем симлинки на /dev/stdout и /dev/stderr (они мешают при монтировании volume)
+# 2. Создаём пустые файлы — они скопируются в свежий volume при первом монтировании
+# 3. Отдаём права пользователю nginx (UID 101 в alpine-образе)
+RUN rm -f /var/log/nginx/access.log /var/log/nginx/error.log \
+    && touch /var/log/nginx/access.log \
+              /var/log/nginx/error.log \
+              /var/log/nginx/api_access.log \
+    && chown -R nginx:nginx /var/log/nginx
+
 # Запуск приложения
 CMD ["nginx", "-g", "daemon off;"]
